@@ -3,7 +3,7 @@
 import cv2
 import pytesseract
 
-image_path = 'Reciepts/20231222_172406.jpg'
+image_path = 'Reciepts/20240121_123406.jpg'
 image = cv2.imread(image_path)
 
 text = pytesseract.image_to_string(image)
