@@ -1,55 +1,76 @@
 #! usr/bin/env python3
 
+from fuzzywuzzy import process
 import cv2
 import pytesseract
 from matplotlib import pyplot as plt
+import re
+import numpy as np
 
-# Load the image from the file system
-# image_path = 'Reciepts/20240121_123406.jpg'
-image_path = 'Reciepts/Screenshot_20240119_144636_Snapchat.jpg'
+image_path = 'Reciepts/ss.png'
 image = cv2.imread(image_path)
-gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-_, binary_image = cv2.threshold(
-    gray_image, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)
 
-# Perform OCR on the preprocessed image
-text = pytesseract.image_to_string(binary_image)
+image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
 
-# Define a function to parse the OCR results
+image = cv2.threshold(image, 0, 255, cv2.THRESH_BINARY | cv2.THRESH_OTSU)[1]
 
+text = pytesseract.image_to_string(image)
+filtered_text = '\n'.join(
+    line for line in text.split('\n') if line.strip() != '')
 
-def parse_fuel_receipt(ocr_text):
-    # Initialize variables
-    fuel_type = None
-    price_per_litre = None
-    total_cost = None
-
-    # Iterate through each line of OCR text
-    for line in ocr_text.split('\n'):
-        # Check if the line contains the fuel type
-        if 'diesel' in line.lower():
-            fuel_type = 'Diesel'
-        elif 'unleaded' in line.lower():
-            fuel_type = 'Unleaded'
-
-        # Try to find the price per litre
-        if '€' in line and '/' in line:
-            parts = line.split()
-            for part in parts:
-                if '€' in part:
-                    price_per_litre = part
-
-        # Try to find the total cost
-        if 'total' in line.lower():
-            total_cost = line.split('€')[-1].strip()
-
-    return fuel_type, price_per_litre, total_cost
+print(filtered_text)
 
 
-# Parse the OCR results
-fuel_type, price_per_litre, total_cost = parse_fuel_receipt(text)
+def extract_receipt_info_single(receipt_text):
+    # Convert all text to lowercase to simplify matching
+    text_lower = receipt_text.lower()
 
-# Print the results
-print(f"Fuel Type: {fuel_type}")
-print(f"Price per Litre: {price_per_litre}")
-print(f"Total Cost: {total_cost}")
+    # Initialize the result dictionary
+    info = {
+        'fuel_type': None,
+        'volume': None,
+        'price_per_litre': None,
+        'total': None
+    }
+
+    # https://stackoverflow.com/questions/1547574/regex-for-prices
+    volume_pattern = r"(?i)(?:volume|;|:|diesel|unleaded|pump\s*([a-z]|[0-9])|\))\s*(\d+(?:[.,]\d{2}))\s*°?\s*(ltr|l|net)?"
+
+    price_per_litre_pattern = r"(?:price|€)\s*([1-9][.,]\d{3})\s*(eur/l|/l|/)?\s*"
+
+    # Define fuel type choices for fuzzy matching
+    fuel_type_choices = ["unleaded", "diesel"]
+
+    # Search for fuel type with fuzzy match
+    fuel_type_match = process.extractOne(
+        text_lower, fuel_type_choices, score_cutoff=50)
+    if fuel_type_match:
+        info['fuel_type'] = fuel_type_match[0]
+
+    # Search for volume
+    volume_match = re.search(volume_pattern, text_lower)
+    if volume_match:
+        info['volume'] = next((m for m in volume_match.groups() if m), None)
+        if info['volume'] is not None:
+            info['volume'] = info['volume'].replace(',', '.')
+
+    # Search for price per litre
+    price_per_litre_match = re.search(price_per_litre_pattern, text_lower)
+    if price_per_litre_match:
+        info['price_per_litre'] = next(
+            (m for m in price_per_litre_match.groups() if m), None)
+        if info['price_per_litre'] is not None:
+            info['price_per_litre'] = info['price_per_litre'].replace(',', '.')
+
+    if info['volume'] is not None and info['price_per_litre'] is not None:
+        total = float(info['volume']) * float(info['price_per_litre'])
+        total = round(total, 2)
+        info['total'] = total
+    else:
+        info['total'] = None
+
+    return info
+
+
+extracted_info_single = extract_receipt_info_single(filtered_text)
+print(extracted_info_single)
